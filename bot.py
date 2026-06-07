@@ -1,388 +1,285 @@
 """
-Main Telegram Bot Application
-Handles user interactions and bot logic
+Telegram Bot — Welcome, language selection, and service navigation.
 """
 
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from config import BOT_TOKEN, OWNER_USERNAME, OWNER_USER_ID, CHANNEL_LINK, FREE_ECOSYSTEM_DESCRIPTION, PREMIUM_DESCRIPTION, PREMIUM_PRODUCTS, DYNAMIC_DESCRIPTION
 
-# Enable logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+)
+
+from config import (
+    BOT_TOKEN,
+    CHANNEL_LINK,
+    DEFAULT_LANG,
+    EXCHANGE_ADMIN_USERNAME,
+    EXCHANGE_CHANNEL_LINK,
+    LANGUAGES,
+    OWNER_USER_ID,
+    OWNER_USERNAME,
+    PREMIUM_CHANNEL_LINK,
+    t,
+)
+
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
 
+def get_lang(context: ContextTypes.DEFAULT_TYPE) -> str:
+    return context.user_data.get("lang", DEFAULT_LANG)
+
+
+def language_keyboard(lang: str | None = None) -> InlineKeyboardMarkup:
+    items = list(LANGUAGES.items())
+    rows = [
+        [
+            InlineKeyboardButton(label, callback_data=f"lang_{code}")
+            for code, label in items[i : i + 2]
+        ]
+        for i in range(0, len(items), 2)
+    ]
+    if lang:
+        rows.append([InlineKeyboardButton(t(lang, "btn_back_menu"), callback_data="menu")])
+    return InlineKeyboardMarkup(rows)
+
+
+def main_menu_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(t(lang, "btn_free"), callback_data="svc_free"),
+            InlineKeyboardButton(t(lang, "btn_premium_bundles"), callback_data="svc_pb"),
+        ],
+        [
+            InlineKeyboardButton(t(lang, "btn_exchange"), callback_data="svc_exchange"),
+            InlineKeyboardButton(t(lang, "btn_image"), callback_data="svc_image"),
+        ],
+        [
+            InlineKeyboardButton(t(lang, "btn_support"), url=f"https://t.me/{OWNER_USERNAME}"),
+            InlineKeyboardButton(t(lang, "btn_change_lang"), callback_data="lang_pick"),
+        ],
+    ])
+
+
+def premium_bundles_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(t(lang, "btn_premium"), callback_data="svc_premium")],
+        [InlineKeyboardButton(t(lang, "btn_bundles"), callback_data="svc_bundles")],
+        [InlineKeyboardButton(t(lang, "btn_back_menu"), callback_data="menu")],
+    ])
+
+
+def back_to_menu_row(lang: str) -> list:
+    return [InlineKeyboardButton(t(lang, "btn_back_menu"), callback_data="menu")]
+
+
+async def send_welcome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    name = update.effective_user.first_name
+    text = t(DEFAULT_LANG, "welcome", name=name)
+    markup = language_keyboard()
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+
+
+async def show_language_picker(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = get_lang(context)
+    text = t(lang, "language_pick")
+    markup = language_keyboard(lang)
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    lang = get_lang(context)
+    text = t(lang, "main_menu") + t(lang, "cta_footer")
+    markup = main_menu_keyboard(lang)
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    /start command - Shows welcome message with two main options
-    """
-    user_name = update.effective_user.first_name
-    
-    welcome_message = f"""
-👋 *Welcome, {user_name}!*
-
-I'm here to help you explore amazing content. Choose your path:
-
-1️⃣ **Free Ecosystem** - Access quality content for free (with some security measures)
-2️⃣ **Premium** - Get personalized support from our team
-
-What would you like to do?
-"""
-    
-    # Create inline keyboard with two options
-    keyboard = [
-        [InlineKeyboardButton("🎯 Explore Free Ecosystem", callback_data="free")],
-        [InlineKeyboardButton("💎 Go Premium", callback_data="premium")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        welcome_message,
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+    await send_welcome(update, context)
 
 
-async def free_ecosystem(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Handle free ecosystem option
-    """
-    query = update.callback_query
-    await query.answer()
-    
-    # Show free ecosystem description
-    keyboard = [
-        [InlineKeyboardButton("📺 Enter Channel", url=CHANNEL_LINK)],
-        [InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="start")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    channel_message = f"""
-{FREE_ECOSYSTEM_DESCRIPTION}
-
-━━━━━━━━━━━━━━━━━━━━
-
-📺 **The One Streamer (General)**
-
-Get to the One Streamer General channel - it has everything you need for free!
-"""
-    
-    await query.edit_message_text(
-        text=channel_message,
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-
-
-async def premium_products(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Handle premium option - Show products list
-    """
-    query = update.callback_query
-    await query.answer()
-    
-    # Create keyboard with product options
-    keyboard = []
-    for product_key, product_info in PREMIUM_PRODUCTS.items():
-        button_text = f"{product_info['name']} - {product_info['price']}"
-        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"product_{product_key}")])
-    
-    # Add back button
-    keyboard.append([InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="start")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    premium_message = f"""
-{PREMIUM_DESCRIPTION}
-
-━━━━━━━━━━━━━━━━━━━━
-
-📦 *Available Packages:*
-
-Click on any package to get more details:
-"""
-    
-    await query.edit_message_text(
-        text=premium_message,
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-
-
-async def product_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Handle product selection - Show product details and send notification to owner
-    """
-    query = update.callback_query
-    await query.answer()
-    
-    # Extract product key from callback data
-    product_key = query.data.split("_")[1] + "_" + query.data.split("_")[2]
-    
-    product_info = PREMIUM_PRODUCTS.get(product_key)
-    
-    if not product_info:
-        await query.edit_message_text(text="❌ Product not found!")
+async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if "lang" not in context.user_data:
+        await send_welcome(update, context)
         return
-    
-    # Get user information
-    user = update.effective_user
-    user_link = f"tg://user?id={user.id}"
-    
-    # Store selected product for note capture
-    context.user_data['selected_product'] = product_key
-    
-    # Prepare product-specific message
-    product_description = product_info['description']
-    
-    # Add dynamic description only for products 1-4 (content packages)
-    if product_info['category'] == 'content':
-        full_description = f"{product_description}\n\n{DYNAMIC_DESCRIPTION}"
-    else:
-        full_description = product_description
-    
-    # Message to show user
-    user_message = f"""
-✅ *You Selected: {product_info['name']}*
-
-💰 Price: {product_info['price']}
-
-📝 Description:
-{full_description}
-
-━━━━━━━━━━━━━━━━━━━━
-
-💬 *Want to add any notes or requests?*
-
-Reply below with any special requests, questions, or details. Then click "Contact Attendant" below.
-
-Or directly click the button to contact our team!
-"""
-    
-    keyboard = [
-        [InlineKeyboardButton("👤 Contact Personal Attendant", url=f"https://t.me/{OWNER_USERNAME}")],
-        [InlineKeyboardButton("⬅️ Back to Products", callback_data="premium")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        text=user_message,
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
-    
-    # IMMEDIATELY SEND NOTIFICATION TO OWNER
-    try:
-        # Get your Telegram user ID (you need to set this in config)
-        owner_id = context.bot_data.get('owner_id')
-        
-        if owner_id:
-            # Create notification message
-            owner_notification = f"""
-🔔 *New Premium Inquiry*
-
-👤 User: {user.first_name} {user.last_name or ''}
-🆔 User ID: {user.id}
-📱 Username: @{user.username or 'No username'}
-
-━━━━━━━━━━━━━━━━━━━━
-
-📦 *Product Selected:*
-{product_info['name']}
-💰 Price: {product_info['price']}
-
-📝 *Description:*
-{full_description}
-
-━━━━━━━━━━━━━━━━━━━━
-
-[👤 Message this user]({user_link})
-"""
-            
-            # Send to owner
-            await context.bot.send_message(
-                chat_id=owner_id,
-                text=owner_notification,
-                parse_mode="Markdown"
-            )
-            logger.info(f"✅ Sent product inquiry notification to owner. Product: {product_info['name']}")
-    except Exception as e:
-        logger.error(f"⚠️ Could not send notification to owner: {e}")
-
-
-async def handle_user_notes(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Capture user's custom notes/requests and send to owner
-    """
-    if update.message and update.message.text:
-        # Store the user's notes
-        context.user_data['user_notes'] = update.message.text
-        
-        # Get stored product info
-        product_key = context.user_data.get('selected_product')
-        product_info = PREMIUM_PRODUCTS.get(product_key)
-        
-        if product_info:
-            user = update.effective_user
-            user_link = f"tg://user?id={user.id}"
-            
-            # Get full description based on product category
-            product_description = product_info['description']
-            if product_info['category'] == 'content':
-                full_description = f"{product_description}\n\n{DYNAMIC_DESCRIPTION}"
-            else:
-                full_description = product_description
-            
-            # Updated message with user notes
-            owner_notification = f"""
-🔔 *New Premium Inquiry - With User Notes*
-
-👤 User: {user.first_name} {user.last_name or ''}
-🆔 User ID: {user.id}
-📱 Username: @{user.username or 'No username'}
-
-━━━━━━━━━━━━━━━━━━━━
-
-📦 *Product Selected:*
-{product_info['name']}
-💰 Price: {product_info['price']}
-
-📝 *Description:*
-{full_description}
-
-━━━━━━━━━━━━━━━━━━━━
-
-💬 *User's Notes/Requests:*
-{context.user_data['user_notes']}
-
-━━━━━━━━━━━━━━━━━━━━
-
-[👤 Message this user]({user_link})
-"""
-            
-            response = f"""
-✅ *Your Request Received!*
-
-📦 Product: {product_info['name']}
-📝 Your Notes: {context.user_data['user_notes']}
-
-Your inquiry with all details has been recorded. A personal attendant will reach out to you shortly!
-
-Thank you! 🎉
-"""
-            
-            # Send response to user
-            await update.message.reply_text(response, parse_mode="Markdown")
-            
-            # SEND UPDATED NOTIFICATION TO OWNER
-            try:
-                owner_id = context.bot_data.get('owner_id')
-                if owner_id:
-                    await context.bot.send_message(
-                        chat_id=owner_id,
-                        text=owner_notification,
-                        parse_mode="Markdown"
-                    )
-                    logger.info(f"✅ Sent product inquiry with notes to owner. Product: {product_info['name']}")
-            except Exception as e:
-                logger.error(f"⚠️ Could not send notification to owner: {e}")
-        else:
-            await update.message.reply_text("❌ Error: Please first select a product. Reply after clicking on a premium product.")
-
-
-async def back_to_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    Go back to start menu
-    """
-    query = update.callback_query
-    await query.answer()
-    
-    user_name = query.from_user.first_name
-    
-    welcome_message = f"""
-👋 *Welcome, {user_name}!*
-
-I'm here to help you explore amazing content. Choose your path:
-
-1️⃣ **Free Ecosystem** - Access quality content for free (with some security measures)
-2️⃣ **Premium** - Get personalized support from our team
-
-What would you like to do?
-"""
-    
-    keyboard = [
-        [InlineKeyboardButton("🎯 Explore Free Ecosystem", callback_data="free")],
-        [InlineKeyboardButton("💎 Go Premium", callback_data="premium")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        text=welcome_message,
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+    await show_main_menu(update, context)
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """
-    /help command - Show help information
-    """
-    help_text = """
-📖 *How to use this bot:*
+    lang = get_lang(context)
+    await update.message.reply_text(
+        t(lang, "help", owner=OWNER_USERNAME),
+        parse_mode="Markdown",
+    )
 
-/start - Start the bot and see options
-/help - Show this help message
 
-🎯 *Free Path:*
-- Explore our free ecosystem
-- Get access to our general channel
-- All free, no cost!
+async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    lang = get_lang(context)
 
-💎 *Premium Path:*
-- Browse premium packages
-- Contact our personal attendant
-- Personalized experience
+    # ── Language selection ────────────────────────────────────────────────
+    if data == "lang_pick":
+        await show_language_picker(update, context)
+        return
 
-Any questions? Contact: @{owner_username}
-""".format(owner_username=OWNER_USERNAME)
-    
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    if data.startswith("lang_"):
+        context.user_data["lang"] = data.removeprefix("lang_")
+        await show_main_menu(update, context)
+        return
+
+    # ── Main menu ─────────────────────────────────────────────────────────
+    if data == "menu":
+        await show_main_menu(update, context)
+        return
+
+    # ── Premium & Bundles submenu (buttons only) ──────────────────────────
+    if data == "svc_pb":
+        await query.edit_message_text(
+            t(lang, "pb_menu"),
+            reply_markup=premium_bundles_keyboard(lang),
+            parse_mode="Markdown",
+        )
+        return
+
+    # ── Service detail views ──────────────────────────────────────────────
+    if data == "svc_free":
+        keyboard = [
+            [InlineKeyboardButton(t(lang, "btn_join_channel"), url=CHANNEL_LINK)],
+            back_to_menu_row(lang),
+        ]
+        await query.edit_message_text(
+            f"{t(lang, 'free_title')}\n\n{t(lang, 'free_body')}",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+        return
+
+    if data == "svc_premium":
+        keyboard = [
+            [InlineKeyboardButton(t(lang, "btn_join_premium"), url=PREMIUM_CHANNEL_LINK)],
+            [InlineKeyboardButton(t(lang, "btn_request_permission"), callback_data="req_premium")],
+            [InlineKeyboardButton(t(lang, "btn_back_pb"), callback_data="svc_pb")],
+        ]
+        await query.edit_message_text(
+            f"{t(lang, 'premium_title')}\n\n{t(lang, 'premium_body', owner=OWNER_USERNAME)}",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+        return
+
+    if data == "svc_bundles":
+        keyboard = [
+            [InlineKeyboardButton(t(lang, "btn_contact_admin"), url=f"https://t.me/{OWNER_USERNAME}")],
+            [InlineKeyboardButton(t(lang, "btn_back_pb"), callback_data="svc_pb")],
+        ]
+        await query.edit_message_text(
+            f"{t(lang, 'bundles_title')}\n\n{t(lang, 'bundles_body')}",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+        return
+
+    if data == "svc_exchange":
+        keyboard = [
+            [InlineKeyboardButton(t(lang, "btn_request_join_exchange"), url=EXCHANGE_CHANNEL_LINK)],
+            [InlineKeyboardButton(t(lang, "btn_verify_exchange_admin"), url=f"https://t.me/{EXCHANGE_ADMIN_USERNAME}")],
+            back_to_menu_row(lang),
+        ]
+        await query.edit_message_text(
+            f"{t(lang, 'exchange_title')}\n\n{t(lang, 'exchange_body', exchange_admin=EXCHANGE_ADMIN_USERNAME)}",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+        return
+
+    if data == "svc_image":
+        keyboard = [
+            [InlineKeyboardButton(t(lang, "btn_contact_admin"), url=f"https://t.me/{OWNER_USERNAME}")],
+            back_to_menu_row(lang),
+        ]
+        await query.edit_message_text(
+            f"{t(lang, 'image_title')}\n\n{t(lang, 'image_body')}",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown",
+        )
+        return
+
+    # ── Request notifications to owner ──────────────────────────────────
+    if data.startswith("req_"):
+        service = data.removeprefix("req_")
+        notify_keys = {
+            "premium": "notify_premium",
+            "bundles": "notify_bundles",
+            "exchange": "notify_exchange",
+            "image": "notify_image",
+        }
+        await notify_owner(update, context, t(lang, notify_keys[service]))
+        await query.answer(t(lang, "notify_sent"), show_alert=True)
+        return
+
+
+async def notify_owner(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    service_label: str,
+) -> None:
+    owner_id = context.bot_data.get("owner_id")
+    if not owner_id:
+        return
+
+    user = update.effective_user
+    user_link = f"tg://user?id={user.id}"
+    message = (
+        f"{service_label}\n\n"
+        f"👤 {user.first_name} {user.last_name or ''}\n"
+        f"🆔 {user.id}\n"
+        f"📱 @{user.username or 'no username'}\n\n"
+        f"[Message user]({user_link})"
+    )
+    try:
+        await context.bot.send_message(chat_id=owner_id, text=message, parse_mode="Markdown")
+        logger.info("Notification sent to owner for %s (user %s)", service_label, user.id)
+    except Exception as exc:
+        logger.error("Failed to notify owner: %s", exc)
 
 
 def main() -> None:
-    """
-    Start the bot
-    """
-    # Create the Application
     application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Store owner_id in bot_data for use in handlers
-    if OWNER_USER_ID and OWNER_USER_ID != 'your_user_id_here':
-        application.bot_data['owner_id'] = int(OWNER_USER_ID)
+
+    if OWNER_USER_ID and OWNER_USER_ID != "your_user_id_here":
+        application.bot_data["owner_id"] = int(OWNER_USER_ID)
     else:
-        logger.warning("⚠️ OWNER_USER_ID not set in .env - notifications will not be sent to owner")
-    
-    # Add command handlers
+        logger.warning("OWNER_USER_ID not set — owner notifications disabled")
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
-    
-    # Add callback query handlers for buttons
-    application.add_handler(CallbackQueryHandler(free_ecosystem, pattern="^free$"))
-    application.add_handler(CallbackQueryHandler(premium_products, pattern="^premium$"))
-    application.add_handler(CallbackQueryHandler(product_details, pattern="^product_"))
-    application.add_handler(CallbackQueryHandler(back_to_start, pattern="^start$"))
-    
-    # Add message handler for user notes (must be after callback handlers)
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_notes))
-    
-    # Start the Bot
-    logger.info("🤖 Bot is starting...")
-    application.run_polling()
+    application.add_handler(CommandHandler("menu", menu_command))
+    application.add_handler(CallbackQueryHandler(on_callback))
+
+    logger.info("Bot is starting...")
+    logger.info("Menu text: %s", t(DEFAULT_LANG, "main_menu").split("\n")[0])
+    application.run_polling(drop_pending_updates=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
